@@ -67,11 +67,11 @@ class Infer
 
                 break;
             case GetAttrExpression::class:
-                $variables = array_replace_recursive($variables, $this->visitGetAttrExpression($ast, '', $for));
+                $variables = array_replace_recursive($variables, $this->visitGetAttrExpression($ast, null, $for));
 
                 break;
             case ForNode::class:
-                $variables = array_replace_recursive($variables, $this->visitForNode($ast));
+                $variables = array_replace_recursive($variables, $this->visitForNode($ast, null, $for));
 
                 break;
             default:
@@ -87,12 +87,12 @@ class Infer
 
     /**
      * Visit Object|Array
-     * @param Node   $ast
-     * @param string $subKey sub object|array key
-     * @param array  $for
+     * @param Node        $ast
+     * @param string|null $subKey sub object|array key
+     * @param array       $for
      * @return array
      */
-    protected function visitGetAttrExpression(Node $ast, $subKey = '', $for = [])
+    protected function visitGetAttrExpression(Node $ast, $subKey = null, $for = [])
     {
         $node = $ast->getNode('node');
         // current node attribute
@@ -117,13 +117,14 @@ class Infer
             }
 
             // for loop value
+            $var = [];
             if ($for && $for[0] && $for[1] === $key) {
                 $var = [
                     $for[0] => [
                         $subVar,
                     ],
                 ];
-            } else {
+            } elseif (! $for || ($for && ! empty($for[0]))) {
                 $var = [
                     $key => $subVar,
                 ];
@@ -137,23 +138,85 @@ class Infer
 
     /**
      * Visit ForNode vars
-     * @param Node $ast
+     * @param Node         $ast
+     * @param array|string $seq seqNode variable
+     * @param array        $for parent for node info
      * @return array
      */
-    protected function visitForNode(Node $ast)
+    protected function visitForNode(Node $ast, $seq = null, $for = [])
     {
         $valNode  = $ast->hasNode('value_target') ? $ast->getNode('value_target') : null;
         $seqNode  = $ast->hasNode('seq') ? $ast->getNode('seq') : null;
         $bodyNode = $ast->hasNode('body') ? $ast->getNode('body') : null;
 
         $val = $valNode && get_class($valNode) === AssignNameExpression::class ? $valNode->getAttribute('name') : null;
-        $seq = $seqNode && get_class($seqNode) === NameExpression::class ? $seqNode->getAttribute('name') : null;
+
+        $seq  = $seq ?: null;
+        $vars = [];
+        if ($seqNode && get_class($seqNode) === NameExpression::class) {
+            $seq = $seqNode->getAttribute('name');
+        }
+
+        // sub for
+        if (! $seq && $seqNode && get_class($seqNode) === GetAttrExpression::class) {
+            $attr = $this->visitGetAttrExpression($seqNode);
+            if (isset($attr[$for[1]])) {
+                $vars = [$for[0] => [$attr[$for[1]]]];
+            }
+
+            $key = $this->getNestedKey($attr);
+            $sub = $this->visitForNode($ast, $key);
+            if (isset($sub[$key])) {
+                $this->setNestedValue($vars, $key, $sub[$key]);
+                unset($sub[$key]);
+            }
+            // merge sibling for
+            $vars = array_replace_recursive($vars, $sub);
+
+            return $vars;
+        }
 
         $vars = $this->infer($bodyNode, [$seq, $val]);
 
-        return $seq ?
-            array_replace_recursive($vars, [$seq => []]) :
-            $vars;
+        return array_replace_recursive($vars, [$seq => []]);
+    }
+
+    /**
+     * Get nested array deepest key
+     * @param array       $array
+     * @param string|null $key
+     * @return string|null
+     */
+    private function getNestedKey(&$array, &$key = null)
+    {
+        $keys = array_keys($array);
+        if (count($keys) > 0) {
+            $key   = $keys[0];
+            $array = &$array[$keys[0]];
+            $this->getNestedKey($array, $key);
+        }
+
+        return $key;
+    }
+
+    /**
+     * Set nested array key value
+     * @param $array
+     * @param $key
+     * @param $value
+     */
+    private function setNestedValue(&$array, $key, $value)
+    {
+        $keys = array_keys($array);
+        if (count($keys) > 0) {
+            if ($key === $keys[0]) {
+                $array[$key] = $value;
+                return;
+            }
+
+            $array = &$array[$keys[0]];
+            $this->setNestedValue($array, $key, $value);
+        }
     }
 
 }

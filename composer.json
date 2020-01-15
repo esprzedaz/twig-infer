@@ -2,6 +2,12 @@
     "name": "rookie0/twig-infer",
     "type": "library",
     "description": "Twig template variables infer",
+    "keywords": [
+        "twig",
+        "template",
+        "infer",
+        "variables"
+    ],
     "license": "MIT",
     "authors": [
         {
