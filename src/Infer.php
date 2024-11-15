@@ -6,6 +6,7 @@ use Twig\Environment;
 use Twig\Node\Expression\AssignNameExpression;
 use Twig\Node\Expression\GetAttrExpression;
 use Twig\Node\Expression\NameExpression;
+use Twig\Node\Expression\FilterExpression;
 use Twig\Node\ForNode;
 use Twig\Node\Node;
 
@@ -153,8 +154,17 @@ class Infer
 
         $seq  = $seq ?: null;
         $vars = [];
-        if ($seqNode && get_class($seqNode) === NameExpression::class) {
-            $seq = $seqNode->getAttribute('name');
+        
+        if ($seqNode) {
+            switch (get_class($seqNode)) {
+                case NameExpression::class:
+                    $seq = $seqNode->getAttribute('name');
+                    break;
+            
+                case FilterExpression::class:
+                    $seq = $seqNode->getNode('node')->getAttribute('name');
+                    break;
+            }
         }
 
         // sub for
